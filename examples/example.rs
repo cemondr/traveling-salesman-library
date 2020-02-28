@@ -33,6 +33,12 @@ fn main(){
         vec10[i].print_coordinates(true);
     }
 
+    let mut optimized_path = optimize_using_hill_climbing(&vec10,10);
+    for city in optimized_path{
+        print!("{:?} ->", city.print_name(false))
+    }
+
+    /*
 
     let distance_vector = precalculate_distance(&vec10);
 
@@ -46,5 +52,6 @@ fn main(){
         }
         println!()
     }
+    */
     
 }
