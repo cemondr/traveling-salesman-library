@@ -18,25 +18,27 @@ fn main(){
     for i in 0..50{
         let city_name: String = i.to_string();
         if i <10{    
-            let city10 = City::new(city_name.clone(), get_random_city());
+            let city10 = City::new(city_name.clone(),i,get_random_city());
             vec10.push(city10);
         }
         if i < 30{
-            let city30 = City::new(city_name.clone(), get_random_city());
+            let city30 = City::new(city_name.clone(),i,get_random_city());
             vec30.push(city30);
         }
-        let city50 = City::new(city_name, get_random_city());
+        let city50 = City::new(city_name,i,get_random_city());
         vec50.push(city50);
     }
-    for i in 0..10{
-        vec10[i].print_name(true);
-        vec10[i].print_coordinates(true);
+
+
+    println!("The path");
+
+    let optimized_path: (Vec<&City>, f32, u64) = optimize_using_hill_climbing(&vec30,10);
+    for city in optimized_path.0{
+        print!("{:?} ->", city.get_name());
     }
 
-    let mut optimized_path = optimize_using_hill_climbing(&vec10,10);
-    for city in optimized_path{
-        print!("{:?} ->", city.print_name(false))
-    }
+    println!("{:?}", "");
+    println!("length: {:?} |||| flips: {:?}", optimized_path.1,optimized_path.2);
 
     /*
 
