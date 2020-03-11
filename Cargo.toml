@@ -11,5 +11,7 @@ name = "rso4ts"
 path = "src/lib.rs"
 
 [dependencies]
-rand = "0.7.3"
+rand = "0.6"
 geo = "0.12.2"
+ordered-float = "1.0.2"
+plotters = "^0.2.12"
