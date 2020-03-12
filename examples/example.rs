@@ -41,10 +41,12 @@ fn main(){
     display_path(&returned_path.0);
     */
 
+    /*
     let this = match plot_histogram(){
         Ok(num) => num,
         Err(_) => print!("Bish it's an error"),
     };
+    */
 
     /*
     for city in data{
@@ -92,7 +94,7 @@ fn main(){
     }
    */ 
 
-    //optimize_using_genetic_algorithm(&vec100, 100, 20, 0.02,500);
+    optimize_using_genetic_algorithm(&data, 100, 20, 0.02, 1500);
 
     /*
     let distance_table: Vec<Vec<f32>> = precalculate_distance(&vec10);

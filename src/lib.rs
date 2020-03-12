@@ -231,47 +231,52 @@ pub fn determine_fitness(population:&Vec<Vec<&City>>, distance_table: &Vec<Vec<f
     fitness_scores
 }
 
-pub fn select_for_pool(fitness_scores: &Vec<(u32,f32)>, elite_size:u32)-> Vec<&(u32,f32)>{
+pub fn select_for_pool(fitness_scores: &Vec<(u32,f32)>, elite_size:u32)-> HashSet<u32> {
     let mut rng = rand::thread_rng();
     let length = fitness_scores.len();
-    let mut pool = Vec::new();
-    for i in 0..elite_size.try_into().unwrap(){
-        pool.push(&fitness_scores[i]);
+    //let mut pool = Vec::new();
+    let mut routes_to_breed = HashSet::new();
+
+    // put the route(id, score) for elite size
+    for i in (0..elite_size as usize){
+        routes_to_breed.insert(fitness_scores[i].0);
     }
-
-    let fixed_point = get_fixed_point(&pool);
-
-    for j in elite_size as usize ..length as usize{
-        if fitness_scores[j].1 >= fixed_point{
-            pool.push(&fitness_scores[j]);
+    // for the remainder get a random value
+    let random_remainder:u32 = rng.gen_range(elite_size, length as u32);
+    // Inversely associate that with the probability of picking it up
+    let fixed_point = 1.00/&fitness_scores[random_remainder as usize].1;
+    
+    for j in (elite_size as usize ..length as usize){
+        //println!{"fs: {:?}, fixed_point{:?}",1.00/fitness_scores[j].1, fixed_point};
+        if 1.00/fitness_scores[j].1>= fixed_point{
+            routes_to_breed.insert(fitness_scores[j].0);
         }else{
             break;
         }
     }
-    pool
+    
+    /*
+    println!{"routes_to_breed LENGTH: {:?}", &routes_to_breed.len()};
+    for x in &routes_to_breed{
+        println!("{:?}", x);
+    }
+    */
+    
+    routes_to_breed
 }
 
-pub fn get_fixed_point(pool: &Vec<&(u32,f32)>)-> f32{
-    let length = pool.len();
-    let denum = 5;
-    let mut ratio = length/denum;
-    let mut upper_bound = 0.0;
-    let mut lower_bound = 0.0;
-    for i in 0..ratio{
-        upper_bound+= pool[i].1;
+pub fn create_mating_pool<'a>(mut population:Vec<Vec<&'a City>>, pool:HashSet<u32>) -> Vec<Vec<&'a City>>{
+    let mut mating_pool: Vec<Vec<&City>> = Vec::new();
+    //println!("population length: {:?}", &population.len());
+    //println!("pool length: {:?}", pool.len());
+    let mut k = 0;
+    for i in 0..population.len(){
+        if (pool.contains(&(i as u32))){
+            mating_pool.push(population.remove(i-k));
+            k+=1;
+        }
     }
-    for i in length-denum .. length{
-        lower_bound += pool[i].1;
-    }
-    assert!(true,upper_bound >= lower_bound);
-    upper_bound - lower_bound
-}
-
-pub fn create_mating_pool<'a>(population:&'a Vec<Vec<&'a City>>, pool:Vec<&(u32,f32)>) -> Vec<&'a Vec<&'a City>>{
-    let mut mating_pool: Vec<&Vec<&City>> = Vec::new();
-    for path in pool{
-        mating_pool.push(&population[path.0 as usize]);
-    }
+    //println!{"mp len: {:?}", &mating_pool.len()};
     mating_pool
 }
 
@@ -311,7 +316,7 @@ pub fn breed_and_mutate<'a>(parent1: &Vec<&'a City>, parent2:&Vec<&'a City>, mut
     child
 }
 
-pub fn population_crossover<'a>(mating_pool: Vec<&'a Vec<&'a City>>, elite_size:u32, mutation_rate:f32)->Vec<Vec<&'a City>>{
+pub fn population_crossover<'a>(mating_pool: Vec<Vec<&'a City>>, elite_size:u32, mutation_rate:f32)->Vec<Vec<&'a City>>{
     //use rand::{thread_rng, seq};
     let mut rng = rand::thread_rng();
     assert!(true, mating_pool.len() > elite_size.try_into().unwrap());
@@ -322,48 +327,96 @@ pub fn population_crossover<'a>(mating_pool: Vec<&'a Vec<&'a City>>, elite_size:
         children.push(mating_pool[i as usize].to_vec());
     }
     // randomly select from the pool
+    /*
     #[derive(Debug)] 
     let mut sample = match seq::sample_iter(&mut rng, &mating_pool, mating_pool.len()){
         Ok(sample) => sample,
         Err(sample) => sample
     };
+    */
     //
-    for i in 0..length{
-        let mut child = breed_and_mutate(&sample[i as usize], &sample[mating_pool.len()-1-i as usize], mutation_rate);
+    while children.len()< 100{
+        let parent1 = rng.gen_range(0, mating_pool.len());
+        let parent2 = rng.gen_range(0, mating_pool.len());
+        let mut child = breed_and_mutate(&mating_pool[parent1], &mating_pool[parent2], mutation_rate);
+        //let mut child = breed_and_mutate(&sample[i as usize], &sample[mating_pool.len()-1-i as usize], mutation_rate);
         children.push(child);
     }
     children
 }
 
-pub fn get_next_generation<'a>(population:&'a Vec<Vec<&'a City>>,distance_table: &Vec<Vec<f32>>, elite_size:u32, mutation_rate:f32) -> Vec<Vec<&'a City>>{
-    let fitness_table = determine_fitness(population, distance_table, true);
+// This runs for every generation meaning every population
+pub fn get_next_generation<'a>(population:Vec<Vec<&'a City>>,distance_table: &Vec<Vec<f32>>, elite_size:u32, mutation_rate:f32) -> Vec<Vec<&'a City>>{
+    // If this method doesn't accept it, think about cloning it
+    // Get A vector of (u32,f32) indicating route(id,score)
+    let fitness_table = determine_fitness(&population, distance_table, true);
+    //println!("CHECCCKPOINT 1");
+    // Create which ones are going to be in mating pool (elite size and random stuff);
     let selection = select_for_pool(&fitness_table, elite_size);
-    let mating_pool = create_mating_pool(population,selection);
+    //println!("CHECCCKPOINT 2");
+
+    //create the mating pool and pick them from pool. at this point current population vector is gone forever
+    let mating_pool:Vec<Vec<&'a City>> = create_mating_pool(population,selection);
+    //println!("CHECCCKPOINT 3");
+
     //let children = population_crossover(mating_pool,elite_size);
-    let next_generation = population_crossover(mating_pool, elite_size,mutation_rate);
+    let next_generation:Vec<Vec<&'a City>> = population_crossover(mating_pool, elite_size,mutation_rate);
+    //println!("ng len: {:?}", next_generation.len());
     next_generation
 }
 
 
 pub fn optimize_using_genetic_algorithm(data: &Vec<City>, size:usize, elite_size:u32,mutation_rate:f32, generations: u32){
-    let mut population = create_initial_population(data,size);
+    // *create distance table between all the cities (these locations will not change)
     let distance_table = precalculate_distance(data);
+    // *create bunch of (size times) paths
+    let mut population = create_initial_population(data,size);
+    // * Call the 
+
+
     let initial = determine_fitness(&population, &distance_table, true);
-    let route_id: u32 = initial[0].0;
-    for route in &population[route_id as usize]{
-        print!("{:?} -> ", route.get_name());
+    for route in &initial{
+        println!("{:?}", route);
     }
 
-    println!("Value: {:?}",evaluate_current_path_length(&distance_table, &population[route_id as usize]));
+    //Print the first route !!! YOU CAN USE DATA HERE INSTEAD OF POPULATION. POPULATION IS TEMPORARY!
+    for city in &population[0]{
+        print!("{:?} -> ", city.get_name());
+    }
+    println!("Value: {:?}",evaluate_current_path_length(&distance_table, &population[0]));
 
-    let mut temp = get_next_generation(&population,&distance_table,elite_size,mutation_rate);
-    let mut new_gen = get_next_generation(&temp.clone(),&distance_table,elite_size,mutation_rate);
 
-    let mut final_population_rank = determine_fitness(&temp, &distance_table, true);
-    let mut index:u32 = final_population_rank[0].0;
-    for city in &population[index as usize]{
+    for i in 0..generations{
+        let mut temp = get_next_generation(population,&distance_table,elite_size,mutation_rate);
+        population = temp
+    }
+
+    let fitness_table = determine_fitness(&population, &distance_table, true);
+
+    let prime_index = fitness_table[0].0;
+    let prime_val = fitness_table[0].1;
+
+    println!("After return");
+    for city in &population[prime_index as usize]{
+        print!("{:?} ->", city.get_name());
+    }
+    println!("VALUE:");
+    println!("{:?}", prime_val);
+
+    //let mut temp = get_next_generation(population,&distance_table,elite_size,mutation_rate);
+    //population = temp
+
+
+
+
+   // let mut new_gen = get_next_generation(&temp.clone(),&distance_table,elite_size,mutation_rate);
+    //let mut final_population_rank = determine_fitness(&temp, &distance_table, true);
+    //let mut index:u32 = temp[0]
+
+    /*
+    for city in &temp[0]{
         print!("{:?} ->",city.get_name());
     }
-    println!("Value: {:?}",evaluate_current_path_length(&distance_table, &population[index as usize]));
-
+    println!("Value: {:?}",evaluate_current_path_length(&distance_table, &temp[0]));
+    */
 }
