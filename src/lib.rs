@@ -1,18 +1,12 @@
 use std::time::Instant;
 extern crate rand;
 use rand::Rng;
-use rand::seq;
 use plotters::prelude::*;
 use ordered_float::NotNan;
 use std::convert::TryInto;
 use std::collections::HashSet;
 use std::cmp;
-use rand::SeedableRng;
-use std::collections::vec_deque::VecDeque;
-
-const FPS: u32 = 10;
-const LENGTH: u32 = 20;
-const N_DATA_POINTS: usize = (FPS * LENGTH) as usize;
+use plotlib::page::Page;
 
 pub struct City{
     name: String,
@@ -39,7 +33,6 @@ impl City{
         self.assigned_id
     }
 }
-
 
 // Pre calculate all the distances between every city so that we don't have to do on the go
 pub fn precalculate_distance(city_coordinates: &Vec<City>) -> Vec<Vec<f32>>{
@@ -75,7 +68,7 @@ pub fn create_initial_population(data: &Vec<City>, size:usize) -> Vec<Vec<&City>
         population.push(create_initial_path(data));
         counter += 1;
     }
-    return population
+    population
 }
 
 //fn create_initial_path_random
@@ -98,7 +91,21 @@ pub fn display_path(path: &Vec<&City>){
     }
 }
 
-pub fn plot_histogram() -> Result<(), Box<dyn std::error::Error>>{
+
+pub fn plot_hist(data: Vec<f64>, size:u32, right:u32){
+    let h = plotlib::histogram::Histogram::from_slice(&data[..], plotlib::histogram::Bins::Count(right as usize));
+    let v = plotlib::view::ContinuousView::new()
+        .add(&h)
+        .x_range(0.0,size as f64)
+        .y_range(0.0,right as f64)
+        .x_label("th solution")
+        .y_label("miles");
+
+    Page::single(&v).save("histogram.svg").unwrap();
+}
+
+
+pub fn plot_histogram(data: Vec<(u32,u32)>, size:u32, right:u32) -> Result<(), Box<dyn std::error::Error>>{
     let root =
         BitMapBackend::new("data/plotters-doc-data:histogram.png", (640, 480)).into_drawing_area();
 
@@ -109,7 +116,7 @@ pub fn plot_histogram() -> Result<(), Box<dyn std::error::Error>>{
         .y_label_area_size(40)
         .margin(5)
         .caption("Histogram Test", ("sans-serif", 50.0).into_font())
-        .build_ranged(0u32..1100u32, 0u32..1100u32)?;
+        .build_ranged(0u32..size, 0u32..right)?;
 
     chart
         .configure_mesh()
@@ -121,29 +128,23 @@ pub fn plot_histogram() -> Result<(), Box<dyn std::error::Error>>{
         .axis_desc_style(("sans-serif", 15).into_font())
         .draw()?;
 
-    let data = [
-        0u32, 1, 1, 1, 4, 2, 5, 7, 8, 6, 4, 2, 1, 8, 3, 3, 3, 4, 4, 3, 3, 10009,
-    ];
-
-    let data1:Vec<(u32,u32)>= [(1,2),(2,3),(3,4),(4,1),(1000,10)].to_vec();
-
+        println!("data len: {:?}", data.len());
     chart.draw_series(
         Histogram::vertical(&chart)
-            .style(RED.mix(0.5).filled())
-            //data.iter().enumerate().map(|x: &u32| (*x, 1))
-            .data(data1.iter().map(|x: &(u32,u32)| (x.0, x.1))),
+            .data(data.iter().map(|x: &(u32,u32)| (x.0,x.1))),
     )?;
 
     Ok(())
 }
 
-pub fn optimize_using_hill_climbing(data: &Vec<City>, time: u64) -> (Vec<&City>, f32, u64){
+pub fn optimize_using_hill_climbing(data: &Vec<City>, time: u64, is_visual:bool) -> (Vec<&City>, f32, u64){
     let distance_table: Vec<Vec<f32>> = precalculate_distance(data);
     let mut current_path = create_initial_path(data);
     let mut path_length = evaluate_current_path_length(&distance_table, &current_path);
-    println!{"Path Length: {:?}", &path_length};
+    let mut visualization: Vec<f64> = Vec::new();
     print!{"Pre-optimized path: "};
     display_path(&current_path);
+    println!{"{:?} miles", &path_length};
     let size = current_path.len();
     let start = Instant::now();
     let mut flip = 0;
@@ -159,39 +160,46 @@ pub fn optimize_using_hill_climbing(data: &Vec<City>, time: u64) -> (Vec<&City>,
         let temp_length = evaluate_current_path_length(&distance_table, &current_path);
         if  temp_length < path_length{
             path_length = temp_length;
+           // let time_stamp:u32 = start.try_into().unwrap();
+            if is_visual{
+                visualization.push(path_length as f64);
+            }
             flip+=1;
         }else{
             current_path.swap(candidate_one, candidate_two);
         }
     }
+    let data_size = &visualization.len();
+    let last_element = visualization[data_size-1];
+    if is_visual{
+        plot_hist(visualization,*data_size as u32,last_element as u32);
+    }
     (current_path, path_length,flip)
 }
 
 fn acceptance_probability(newscore:f32, oldscore:f32, temperature:f32) -> f32{
-    if newscore == oldscore{
-        return -1.0;
-    }else if newscore<oldscore{
+    if newscore<=oldscore{
         return 1.0;
     }
-    let loss = newscore-oldscore;
-    println!("newscore: {:?}, oldscore: {:?}, temperature: {:?}, probability: {:?}", newscore, oldscore, temperature, 1.0-(loss*temperature));
-    
-    return 1.0-(loss*temperature);
+    let loss = newscore-oldscore;    
+    1.0-(loss*temperature)
 }
-
 
 pub fn optimize_using_simulated_annealing(data: &Vec<City>, time: u64) -> (Vec<&City>, f32, u64){
     let distance_table: Vec<Vec<f32>> = precalculate_distance(data);
     let mut current_path = create_initial_path(data);
     let mut path_length = evaluate_current_path_length(&distance_table, &current_path);
+    print!{"Pre-optimized path: "};
+    display_path(&current_path);
+    println!{"{:?} miles", &path_length};
     let size = current_path.len();
-    let start = Instant::now();
     let mut flip = 0;
-    let mut temperature = 0.000001;
-    let cooling_rate = 0.0001; 
-    let mut loopcount = 0;
+    let mut temperature = 0.000_001;
+    let cooling_rate = 0.00001; 
+    //let mut loopcount = 0;
+    let start = Instant::now();
     while start.elapsed().as_secs() < time {
-        loopcount+=1;
+        //loopcount+=1;
         let mut rng = rand::thread_rng();
         let mut candidate_one = 0;
         let mut candidate_two = 0;
@@ -201,7 +209,7 @@ pub fn optimize_using_simulated_annealing(data: &Vec<City>, time: u64) -> (Vec<&
         }
         current_path.swap(candidate_one, candidate_two);
         let temp_length = evaluate_current_path_length(&distance_table, &current_path);
-        let mut something= rng.gen_range(0.0,1.0);
+        let something= rng.gen_range(0.0,1.0);
         if acceptance_probability(temp_length, path_length, temperature) > something {
             path_length = temp_length;
             flip+=1;
@@ -211,7 +219,7 @@ pub fn optimize_using_simulated_annealing(data: &Vec<City>, time: u64) -> (Vec<&
             current_path.swap(candidate_one, candidate_two);
         }
     }
-    println!("LOOP COUNT: {:?}",loopcount);
+    //println!("LOOP COUNT: {:?}",loopcount);
     (current_path, path_length,flip)
 }
 
@@ -238,7 +246,7 @@ pub fn select_for_pool(fitness_scores: &Vec<(u32,f32)>, elite_size:u32)-> HashSe
     let mut routes_to_breed = HashSet::new();
 
     // put the route(id, score) for elite size
-    for i in (0..elite_size as usize){
+    for i in 0..elite_size as usize{
         routes_to_breed.insert(fitness_scores[i].0);
     }
     // for the remainder get a random value
@@ -246,7 +254,7 @@ pub fn select_for_pool(fitness_scores: &Vec<(u32,f32)>, elite_size:u32)-> HashSe
     // Inversely associate that with the probability of picking it up
     let fixed_point = 1.00/&fitness_scores[random_remainder as usize].1;
     
-    for j in (elite_size as usize ..length as usize){
+    for j in elite_size as usize ..length as usize{
         //println!{"fs: {:?}, fixed_point{:?}",1.00/fitness_scores[j].1, fixed_point};
         if 1.00/fitness_scores[j].1>= fixed_point{
             routes_to_breed.insert(fitness_scores[j].0);
@@ -254,29 +262,18 @@ pub fn select_for_pool(fitness_scores: &Vec<(u32,f32)>, elite_size:u32)-> HashSe
             break;
         }
     }
-    
-    /*
-    println!{"routes_to_breed LENGTH: {:?}", &routes_to_breed.len()};
-    for x in &routes_to_breed{
-        println!("{:?}", x);
-    }
-    */
-    
     routes_to_breed
 }
 
 pub fn create_mating_pool<'a>(mut population:Vec<Vec<&'a City>>, pool:HashSet<u32>) -> Vec<Vec<&'a City>>{
     let mut mating_pool: Vec<Vec<&City>> = Vec::new();
-    //println!("population length: {:?}", &population.len());
-    //println!("pool length: {:?}", pool.len());
     let mut k = 0;
     for i in 0..population.len(){
-        if (pool.contains(&(i as u32))){
+        if pool.contains(&(i as u32)){
             mating_pool.push(population.remove(i-k));
             k+=1;
         }
     }
-    //println!{"mp len: {:?}", &mating_pool.len()};
     mating_pool
 }
 
@@ -295,6 +292,8 @@ pub fn breed_and_mutate<'a>(parent1: &Vec<&'a City>, parent2:&Vec<&'a City>, mut
         partner_genes.insert(parent1[i].get_id());
         child.push(parent1[i]);
     }
+
+    
     for j in 0..length{
         if !partner_genes.contains(&parent2[j].get_id()){
             child.push(parent2[j]);
@@ -317,28 +316,18 @@ pub fn breed_and_mutate<'a>(parent1: &Vec<&'a City>, parent2:&Vec<&'a City>, mut
 }
 
 pub fn population_crossover<'a>(mating_pool: Vec<Vec<&'a City>>, elite_size:u32, mutation_rate:f32)->Vec<Vec<&'a City>>{
-    //use rand::{thread_rng, seq};
     let mut rng = rand::thread_rng();
     assert!(true, mating_pool.len() > elite_size.try_into().unwrap());
-    let length = mating_pool.len()-elite_size as usize;
     let mut children = Vec::new();
     // keep the elite members as children already
     for i in 0..elite_size{
         children.push(mating_pool[i as usize].to_vec());
     }
-    // randomly select from the pool
-    /*
-    #[derive(Debug)] 
-    let mut sample = match seq::sample_iter(&mut rng, &mating_pool, mating_pool.len()){
-        Ok(sample) => sample,
-        Err(sample) => sample
-    };
-    */
     //
     while children.len()< 100{
         let parent1 = rng.gen_range(0, mating_pool.len());
         let parent2 = rng.gen_range(0, mating_pool.len());
-        let mut child = breed_and_mutate(&mating_pool[parent1], &mating_pool[parent2], mutation_rate);
+        let child = breed_and_mutate(&mating_pool[parent1], &mating_pool[parent2], mutation_rate);
         //let mut child = breed_and_mutate(&sample[i as usize], &sample[mating_pool.len()-1-i as usize], mutation_rate);
         children.push(child);
     }
@@ -350,73 +339,36 @@ pub fn get_next_generation<'a>(population:Vec<Vec<&'a City>>,distance_table: &Ve
     // If this method doesn't accept it, think about cloning it
     // Get A vector of (u32,f32) indicating route(id,score)
     let fitness_table = determine_fitness(&population, distance_table, true);
-    //println!("CHECCCKPOINT 1");
     // Create which ones are going to be in mating pool (elite size and random stuff);
     let selection = select_for_pool(&fitness_table, elite_size);
-    //println!("CHECCCKPOINT 2");
-
     //create the mating pool and pick them from pool. at this point current population vector is gone forever
     let mating_pool:Vec<Vec<&'a City>> = create_mating_pool(population,selection);
-    //println!("CHECCCKPOINT 3");
-
-    //let children = population_crossover(mating_pool,elite_size);
     let next_generation:Vec<Vec<&'a City>> = population_crossover(mating_pool, elite_size,mutation_rate);
     //println!("ng len: {:?}", next_generation.len());
     next_generation
 }
 
-
-pub fn optimize_using_genetic_algorithm(data: &Vec<City>, size:usize, elite_size:u32,mutation_rate:f32, generations: u32){
+pub fn optimize_using_genetic_algorithm(data: &Vec<City>, size:usize, elite_size:u32,mutation_rate:f32, time: u64)-> (Vec<&City>, f32, u64){
     // *create distance table between all the cities (these locations will not change)
     let distance_table = precalculate_distance(data);
     // *create bunch of (size times) paths
     let mut population = create_initial_population(data,size);
-    // * Call the 
-
-
-    let initial = determine_fitness(&population, &distance_table, true);
-    for route in &initial{
-        println!("{:?}", route);
-    }
-
     //Print the first route !!! YOU CAN USE DATA HERE INSTEAD OF POPULATION. POPULATION IS TEMPORARY!
+    let mut flip = 0;
+    let start = Instant::now();
+    println!("Pre-optimized path:");
     for city in &population[0]{
         print!("{:?} -> ", city.get_name());
     }
-    println!("Value: {:?}",evaluate_current_path_length(&distance_table, &population[0]));
-
-
-    for i in 0..generations{
-        let mut temp = get_next_generation(population,&distance_table,elite_size,mutation_rate);
-        population = temp
+    println!("{:?} miles",evaluate_current_path_length(&distance_table, &population[0]));
+    while start.elapsed().as_secs() < time{
+        let temp = get_next_generation(population,&distance_table,elite_size,mutation_rate);
+        population = temp;
+        flip += 1;
     }
-
     let fitness_table = determine_fitness(&population, &distance_table, true);
-
     let prime_index = fitness_table[0].0;
     let prime_val = fitness_table[0].1;
-
-    println!("After return");
-    for city in &population[prime_index as usize]{
-        print!("{:?} ->", city.get_name());
-    }
-    println!("VALUE:");
-    println!("{:?}", prime_val);
-
-    //let mut temp = get_next_generation(population,&distance_table,elite_size,mutation_rate);
-    //population = temp
-
-
-
-
-   // let mut new_gen = get_next_generation(&temp.clone(),&distance_table,elite_size,mutation_rate);
-    //let mut final_population_rank = determine_fitness(&temp, &distance_table, true);
-    //let mut index:u32 = temp[0]
-
-    /*
-    for city in &temp[0]{
-        print!("{:?} ->",city.get_name());
-    }
-    println!("Value: {:?}",evaluate_current_path_length(&distance_table, &temp[0]));
-    */
+    let prime = &population[prime_index as usize];
+    (prime.to_vec(),prime_val,flip)
 }
